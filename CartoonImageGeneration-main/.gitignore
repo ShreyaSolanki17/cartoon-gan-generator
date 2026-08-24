@@ -1,2 +1,10 @@
 __pycache__/
 *.pyc
+
+# Dataset and generated training artifacts (large, reproducible via preProcess.py / train.py)
+cartoonset100k/
+cartoonset100k_outlines/
+cartoonset100k_tensors/
+models/
+runs/
+*.pth
