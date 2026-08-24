@@ -25,3 +25,8 @@ Usage
 Preprocess the dataset: python preProcess.py
 Train the model: python train.py
 Adjust hyperparameters in the configuration section of the scripts as needed.
+Generate a sample face from a trained checkpoint: python generate.py --checkpoint <path.pth>
+
+Pretrained weights are not included due to file size / training time.
+Run preProcess.py then train.py on the CartoonSet100k dataset to train
+your own checkpoint, then use generate.py to produce sample outputs.
