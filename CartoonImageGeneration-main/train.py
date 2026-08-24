@@ -1,3 +1,4 @@
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -6,21 +7,12 @@ from torch.utils.data import Dataset, DataLoader
 import os
 from torch.utils.tensorboard import SummaryWriter
 
-from model import ATTR_MAXES, FIXED_ATTRS, CartoonGenerator, AttributePredictor
-
-# Configuration
-BATCH_SIZE = 32
-NUM_EPOCHS = 200
-LEARNING_RATE_G = 5e-4
-LEARNING_RATE_D = 2e-4
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-TENSOR_DIR = "cartoonset100k_tensors"
-MODEL_SAVE_DIR = "models"
-LOG_DIR = "runs"
-
-# Setup directories
-os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
-os.makedirs(LOG_DIR, exist_ok=True)
+from model import CartoonGenerator, AttributePredictor
+from config import (
+    ATTR_MAXES, FIXED_ATTRS, TENSOR_DIR, MODEL_SAVE_DIR, LOG_DIR,
+    BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE_G, LEARNING_RATE_D, DEVICE,
+    loss_weights_for_epoch,
+)
 
 # Dataset class
 class CartoonDataset(Dataset):
@@ -63,6 +55,44 @@ class PerceptualLoss(nn.Module):
 
     def forward(self, x, y):
         return nn.MSELoss()(self.layers(x), self.layers(y))
+
+def save_checkpoint(path, epoch, gen, disc, attr_pred, opt_g, opt_d, opt_attr, scheduler_g, scheduler_d):
+    """Save full training state (weights + optimizers + schedulers + epoch) for --resume."""
+    torch.save({
+        "epoch": epoch,
+        "gen_state": gen.state_dict(),
+        "disc_state": disc.state_dict(),
+        "attr_pred_state": attr_pred.state_dict(),
+        "opt_g_state": opt_g.state_dict(),
+        "opt_d_state": opt_d.state_dict(),
+        "opt_attr_state": opt_attr.state_dict(),
+        "scheduler_g_state": scheduler_g.state_dict(),
+        "scheduler_d_state": scheduler_d.state_dict(),
+    }, path)
+
+
+def load_checkpoint(path, gen, disc, attr_pred, opt_g, opt_d, opt_attr, scheduler_g, scheduler_d, device):
+    """Load a checkpoint saved by save_checkpoint(). Returns the epoch to resume from."""
+    checkpoint = torch.load(path, map_location=device)
+    gen.load_state_dict(checkpoint["gen_state"])
+    disc.load_state_dict(checkpoint["disc_state"])
+    attr_pred.load_state_dict(checkpoint["attr_pred_state"])
+    opt_g.load_state_dict(checkpoint["opt_g_state"])
+    opt_d.load_state_dict(checkpoint["opt_d_state"])
+    opt_attr.load_state_dict(checkpoint["opt_attr_state"])
+    scheduler_g.load_state_dict(checkpoint["scheduler_g_state"])
+    scheduler_d.load_state_dict(checkpoint["scheduler_d_state"])
+    return checkpoint["epoch"] + 1
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train the CartoonGAN generator.")
+    parser.add_argument("--data-dir", default=TENSOR_DIR, help="Directory of preprocessed .pt tensors from preProcess.py. Default: %(default)s")
+    parser.add_argument("--output-dir", default=MODEL_SAVE_DIR, help="Directory to save checkpoints to. Default: %(default)s")
+    parser.add_argument("--epochs", type=int, default=NUM_EPOCHS, help="Number of epochs to train. Default: %(default)s")
+    parser.add_argument("--resume", default=None, help="Path to a checkpoint (from save_checkpoint) to resume training from.")
+    return parser.parse_args()
+
 
 # Training utilities (gradient_penalty and validate functions unchanged)
 def gradient_penalty(disc, real_imgs, fake_imgs):
@@ -149,9 +179,13 @@ def validate(gen, attr_pred, disc, dataloader, color_criterion, outline_criterio
 
 # Main training loop
 if __name__ == '__main__':
-    train_dirs = [os.path.join(TENSOR_DIR, str(i)) for i in range(8)]
-    val_dirs = [os.path.join(TENSOR_DIR, str(i)) for i in [8, 9]]
-    
+    args = parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    train_dirs = [os.path.join(args.data_dir, str(i)) for i in range(8)]
+    val_dirs = [os.path.join(args.data_dir, str(i)) for i in [8, 9]]
+
     val_datasets = [CartoonDataset(val_dir) for val_dir in val_dirs]
     val_dataset = torch.utils.data.ConcatDataset(val_datasets)
     val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
@@ -165,6 +199,11 @@ if __name__ == '__main__':
     scheduler_g = optim.lr_scheduler.StepLR(opt_g, step_size=50, gamma=0.7)
     scheduler_d = optim.lr_scheduler.StepLR(opt_d, step_size=50, gamma=0.7)
 
+    start_epoch = 0
+    if args.resume:
+        start_epoch = load_checkpoint(args.resume, gen, disc, attr_pred, opt_g, opt_d, opt_attr, scheduler_g, scheduler_d, DEVICE)
+        print(f"Resumed from {args.resume}, continuing at epoch {start_epoch + 1}")
+
     color_criterion = nn.MSELoss()
     outline_criterion = nn.MSELoss()
     attr_criterion = nn.CrossEntropyLoss()
@@ -173,7 +212,7 @@ if __name__ == '__main__':
 
     writer = SummaryWriter(LOG_DIR)
 
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(start_epoch, args.epochs):
         train_dir = train_dirs[epoch % 8]
         train_dataset = CartoonDataset(train_dir)
         train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
@@ -212,12 +251,9 @@ if __name__ == '__main__':
             attr_preds = attr_pred(fake_imgs)
             attr_loss = sum(attr_criterion(pred, attrs[:, i]) for i, pred in enumerate(attr_preds)) / 18
 
-            if epoch < 50:
-                total_loss = 0.35 * outline_loss + 0.25 * attr_loss + 0.15 * color_loss + 0.15 * perceptual_loss + 0.1 * adv_loss + 0.05 * hair_texture_loss
-            elif epoch < 100:
-                total_loss = 0.3 * outline_loss + 0.25 * attr_loss + 0.15 * color_loss + 0.15 * perceptual_loss + 0.1 * adv_loss + 0.05 * hair_texture_loss
-            else:
-                total_loss = 0.25 * outline_loss + 0.2 * attr_loss + 0.2 * color_loss + 0.2 * perceptual_loss + 0.1 * adv_loss + 0.05 * hair_texture_loss
+            w_outline, w_attr, w_color, w_perceptual, w_adv, w_hair = loss_weights_for_epoch(epoch)
+            total_loss = (w_outline * outline_loss + w_attr * attr_loss + w_color * color_loss +
+                          w_perceptual * perceptual_loss + w_adv * adv_loss + w_hair * hair_texture_loss)
             
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(gen.parameters(), max_norm=1.0)
@@ -233,7 +269,11 @@ if __name__ == '__main__':
                      attr_criterion, perceptual_criterion, adv_criterion, DEVICE, writer, epoch)
 
         if (epoch + 1) % 10 == 0:
-            torch.save(gen.state_dict(), os.path.join(MODEL_SAVE_DIR, f"gen_epoch_{epoch+1}.pth"))
+            torch.save(gen.state_dict(), os.path.join(args.output_dir, f"gen_epoch_{epoch+1}.pth"))
+            save_checkpoint(os.path.join(args.output_dir, "checkpoint_last.pth"), epoch, gen, disc, attr_pred,
+                             opt_g, opt_d, opt_attr, scheduler_g, scheduler_d)
 
-    torch.save(gen.state_dict(), os.path.join(MODEL_SAVE_DIR, "gen_final.pth"))
+    torch.save(gen.state_dict(), os.path.join(args.output_dir, "gen_final.pth"))
+    save_checkpoint(os.path.join(args.output_dir, "checkpoint_last.pth"), args.epochs - 1, gen, disc, attr_pred,
+                     opt_g, opt_d, opt_attr, scheduler_g, scheduler_d)
     writer.close()

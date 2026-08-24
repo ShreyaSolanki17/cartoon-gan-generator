@@ -6,11 +6,7 @@ import pandas as pd
 import numpy as np
 import cv2
 
-# Configuration
-BASE_DIR = "cartoonset100k/cartoonset100k"
-OUTLINE_BASE_DIR = "cartoonset100k_outlines"
-TENSOR_BASE_DIR = "cartoonset100k_tensors"
-NUM_FOLDERS = 10
+from config import RAW_IMAGE_DIR as BASE_DIR, OUTLINE_DIR as OUTLINE_BASE_DIR, TENSOR_DIR as TENSOR_BASE_DIR, NUM_FOLDERS
 
 # Image transforms
 TRANSFORM = transforms.Compose([

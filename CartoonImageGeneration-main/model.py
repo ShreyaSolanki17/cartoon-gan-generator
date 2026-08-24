@@ -6,8 +6,7 @@ so generate.py can import it without pulling in training-only packages.
 import torch
 import torch.nn as nn
 
-ATTR_MAXES = [3, 2, 2, 3, 2, 14, 4, 7, 15, 111, 5, 11, 10, 12, 7, 3, 3, 3]
-FIXED_ATTRS = [0, 1, 0, 0, 1, 8, 2, 6, 0, 94, 1, 10, 6, 8, 1, 1, 1, 2]
+from config import ATTR_MAXES, FIXED_ATTRS
 
 
 class ResidualBlock(nn.Module):
