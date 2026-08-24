@@ -6,6 +6,7 @@ Usage:
     python generate.py --checkpoint models/gen_final.pth --attrs 0 1 0 0 1 8 2 6 0 94 1 10 6 8 1 1 1 2
 """
 import argparse
+import os
 
 import torch
 from torchvision.transforms.functional import to_pil_image
@@ -63,6 +64,10 @@ if __name__ == "__main__":
 
     gen = load_generator(args.checkpoint)
     color_img, face_outline, hair_outline = generate_image(gen, attrs)
+
+    out_dir = os.path.dirname(args.out)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
     color_img.save(f"{args.out}_color.png")
     face_outline.save(f"{args.out}_face_outline.png")

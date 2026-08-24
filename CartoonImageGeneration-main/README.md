@@ -22,6 +22,7 @@ Uses Adam optimizers (lr=5e-4 for generator, 2e-4 for discriminator) with learni
 Combines multiple losses: color, outline, perceptual, adversarial, and attribute prediction.
 Usage
 
+Install dependencies: pip install -r requirements.txt
 Preprocess the dataset: python preProcess.py
 Train the model: python train.py
 Adjust hyperparameters in the configuration section of the scripts as needed.

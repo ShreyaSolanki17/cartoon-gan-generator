@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms, utils, models
+from torchvision import models
 from torch.utils.data import Dataset, DataLoader
 import os
 from torch.utils.tensorboard import SummaryWriter
-import time
 
 from model import ATTR_MAXES, FIXED_ATTRS, CartoonGenerator, AttributePredictor
 
