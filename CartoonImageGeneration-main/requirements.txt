@@ -5,3 +5,5 @@ pandas
 opencv-python
 Pillow
 tensorboard
+fastapi
+uvicorn
